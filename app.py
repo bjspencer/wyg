@@ -79,6 +79,7 @@ AFRICA = {'Democratic Republic of the Congo', 'Nigeria', 'Cameroon', 'Senegal', 
           'Sudan', 'Somalia', 'Republic of the Congo', 'Angola', 'Ghana', 'Mali', 'Guinea',
           'Ivory Coast', 'Morocco', 'Central African Republic'}
 SOUTH_AMERICA = {'Brazil', 'Argentina', 'Venezuela', 'Colombia', 'Chile', 'Uruguay', 'Bolivia'}
+PLAYOFF_TEAMS = {'DET', 'BOS', 'NYK', 'CLE', 'TOR', 'ATL', 'PHI', 'OKC', 'SAS', 'DEN', 'LAL', 'HOU', 'MIN', 'POR'}
  
 IMPLICATIONS = {
     ('Plays in the Eastern Conference?', 1): [('Plays in the Western Conference?', 0), ('Plays in the Northwest Division?', 0), ('Plays in the Pacific Division?', 0), ('Plays in the Southwest Division?', 0)],
@@ -266,6 +267,13 @@ def load_dataset():
             'Has he won the MVP award?': is_mvp,
             'Has he won Defensive Player of the Year?': is_dpoy,
             'Has he made an All-Defensive Team?': has_all_defense,
+            'Does he play for a 2026 playoff team?': int(team in PLAYOFF_TEAMS),
+            'Has he scored 10,000+ career points?': int(row['PTS'] >= 10000),
+            'Has he grabbed 5,000+ career rebounds?': int(row['REB'] >= 5000),
+            'Has he dished 5,000+ career assists?': int(row['AST'] >= 5000),
+            'Has he played for 3+ teams?': int(len(set(row['TEAM_ABBREVIATION'].split('-'))) >= 3),
+            'Has he played for 10+ seasons?': int(row['SEASON'] >= 10),
+            'Has he ever averaged 30+ PPG in a season?': int((totals_df['PTS']/totals_df['GP'] >= 30).sum() >= 1),
         })
     df = pd.DataFrame(rows)
     df.to_csv(CACHE_FILE, index=False)
@@ -388,7 +396,10 @@ def on_guess_answer(correct):
     s = st.session_state
     if correct:
         s.phase = 'won'
-    elif getattr(s, 'is_final_guess', False):
+        return
+
+    remaining_candidates = [p for p in s.candidates['Player'] if p != s.current_guess]
+    if getattr(s, 'is_final_guess', False) or len(remaining_candidates) == 0:
         s.phase = 'lost'
     else:
         advance_to_next_question()
