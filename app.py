@@ -440,7 +440,8 @@ st.markdown("""
       1. Think of any active NBA player.<br>
       2. Answer yes or no to each question.<br>
       3. I'll make a guess every 5 questions.<br>
-      4. You have 20 questions to stump me — good luck! 🏀
+      4. You have 20 questions to stump me — good luck! 🏀<br>
+         <i>(Data is from the 2025-26 season, so rookies and recent breakout players may be harder to guess!)</i>
     </span>
   </span>
 </div>
