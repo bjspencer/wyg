@@ -198,9 +198,14 @@ def load_dataset():
             draft_num = int(safe('DRAFT_NUMBER'))
         except (ValueError, TypeError):
             draft_num = -1
+        try:
+            draft_year = int(safe('DRAFT_YEAR'))
+        except (ValueError, TypeError):
+            draft_year = 0
         is_first_round = int(draft_round == '1')
         is_lottery = int(draft_round == '1' and 1 <= draft_num <= 14)
         is_undrafted = int(not draft_round or draft_round.lower() == 'undrafted')
+        seasons_played = max(0, 2026 - draft_year + 1) if draft_year > 0 else 0
         try:
             aw = playerawards.PlayerAwards(player_id=pid).get_data_frames()[0]
             descs = set(aw['DESCRIPTION'].tolist())
@@ -272,7 +277,7 @@ def load_dataset():
             'Has he grabbed 5,000+ career rebounds?': int(row['REB'] >= 5000),
             'Has he dished 5,000+ career assists?': int(row['AST'] >= 5000),
             'Has he played for 3+ teams?': int(len(set(row['TEAM_ABBREVIATION'].split('-'))) >= 3),
-            'Has he played for 10+ seasons?': int(row['SEASON'] >= 10),
+            'Has he played for 10+ seasons?': int(seasons_played >= 10),
             'Has he ever averaged 30+ PPG in a season?': int((totals_df['PTS']/totals_df['GP'] >= 30).sum() >= 1),
         })
     df = pd.DataFrame(rows)
@@ -410,6 +415,7 @@ st.set_page_config(page_title="Who You Got?", page_icon="🏀", layout="centered
 st.title("🏀 Who You Got?")
 st.subheader("An NBA player guessing game")
 st.caption("Think of an active NBA player and I will try to guess who it is!")
+st.markdown("**Deployed version: test-1**")
 st.markdown("""
 <style>
 .info-icon {
@@ -462,7 +468,9 @@ st.markdown("""
 h1, h2, h3, .stImage, .stImage img, .stMarkdown, .stSuccess, .stAlert {
     text-align: center !important;
 }
-.stImage { display: flex; justify-content: center; }
+.stImage { display: flex; justify-content: center; align-items: center; }
+.stImage img { margin: 0 auto; }
+div[data-testid="column"] { display: flex; justify-content: center; }
 </style>
 """, unsafe_allow_html=True)
  
@@ -515,8 +523,7 @@ elif s.phase == 'guessing':
         pid = int(player_row.iloc[0]['PLAYER_ID'])
         photo_url = f"https://cdn.nba.com/headshots/nba/latest/1040x760/{pid}.png"
         with st.spinner("Loading photo..."):
-            _, col, _ = st.columns([1, 1, 1])
-            col.image(photo_url, width=260)
+            st.markdown(f'<div style="text-align: center;"><img src="{photo_url}" width="260" /></div>', unsafe_allow_html=True)
     st.subheader("I think you got…")
     st.markdown(f"## {s.current_guess}!")
     col1, col2 = st.columns(2)
@@ -533,8 +540,7 @@ elif s.phase == 'won':
     if not player_row.empty:
         pid = int(player_row.iloc[0]['PLAYER_ID'])
         with st.spinner("Loading photo..."):
-            _, col, _ = st.columns([1, 2, 1])
-            col.image(f"https://cdn.nba.com/headshots/nba/latest/1040x760/{pid}.png", width=260)
+            st.markdown(f'<div style="text-align: center;"><img src="https://cdn.nba.com/headshots/nba/latest/1040x760/{pid}.png" width="260" /></div>', unsafe_allow_html=True)
     st.success(f"🎉 I got it — **{s.current_guess}**!")
     st.balloons()
     if st.button("Play again", use_container_width=True):
