@@ -1,0 +1,5 @@
+streamlit
+pandas
+nba-api
+requests
+urllib3
