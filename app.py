@@ -353,6 +353,7 @@ def make_final_guess():
     s.guessed.append(s.current_guess)
     s.phase = 'guessing'
     s.is_final_guess = True
+    s.final_countdown_done = False
  
 def init_game(df, feature_columns):
     s = st.session_state
@@ -370,6 +371,7 @@ def init_game(df, feature_columns):
     s.is_final_guess = False
     s.history = []
     s.prev_candidate_count = len(df)
+    s.final_countdown_done = False
     advance_to_next_question()
  
 is_last=False
@@ -519,6 +521,14 @@ if s.phase == 'asking' or is_last:
         st.rerun()
  
 elif s.phase == 'guessing':
+    if s.is_final_guess and not s.final_countdown_done:
+        placeholder = st.empty()
+        for i in range(3, 0, -1):
+            placeholder.markdown(f"### 🤔 Thinking... {i}")
+            time.sleep(1)
+        s.final_countdown_done = True
+        st.rerun()
+    
     player_row = df[df['Player'] == s.current_guess]
     if not player_row.empty:
         pid = int(player_row.iloc[0]['PLAYER_ID'])
