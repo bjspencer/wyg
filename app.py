@@ -81,6 +81,29 @@ AFRICA = {'Democratic Republic of the Congo', 'Nigeria', 'Cameroon', 'Senegal', 
 SOUTH_AMERICA = {'Brazil', 'Argentina', 'Venezuela', 'Colombia', 'Chile', 'Uruguay', 'Bolivia'}
 # Add last two teams after tomorrow's play-in games
 PLAYOFF_TEAMS = {'DET', 'BOS', 'NYK', 'CLE', 'TOR', 'ATL', 'PHI', 'OKC', 'SAS', 'DEN', 'LAL', 'HOU', 'MIN', 'POR'}
+
+NBA_BROTHERS = {
+    'Lonzo Ball': 'LaMelo Ball',
+    'Max Christie': 'Cam Christie',
+    'Stephen Curry': 'Seth Curry',
+    'Jrue Holiday': 'Justin Holiday',
+    'Tyus Jones': 'Tre Jones',
+    'Brook Lopez': 'Robin Lopez',
+    'Caleb Martin': 'Cody Martin',
+    'Evan Mobley': 'Isaiah Mobley',
+    'Marcus Morris': 'Markieff Morris',
+    'Amen Thompson' : 'Ausar Thompson',
+    'Franz Wagner': 'Moritz Wagner',
+    'Cason Wallace': 'Keaton Wallace',
+    'Julian Champagnie': 'Justin Champagnie',
+    'Obi Toppin': 'Jacob Toppin',
+    'Pat Spencer': 'Cam Spencer',
+    'Emanuel Miller': 'Leonard Miller',
+    'Marvin Bagley III': 'Marcus Bagley',
+    'Giannis Antetokoumnpo': 'Thanasis Antetokoumnpo',
+    }
+
+
  
 IMPLICATIONS = {
     ('Plays in the Eastern Conference?', 1): [('Plays in the Western Conference?', 0), ('Plays in the Northwest Division?', 0), ('Plays in the Pacific Division?', 0), ('Plays in the Southwest Division?', 0)],
@@ -278,12 +301,14 @@ def load_dataset():
             'Has he scored 10,000+ career points?': int(row['PTS'] >= 10000),
             'Has he grabbed 5,000+ career rebounds?': int(row['REB'] >= 5000),
             'Has he dished 5,000+ career assists?': int(row['AST'] >= 5000),
-            'Has he played for 3+ teams?': int(len(set(row['TEAM_ABBREVIATION'].split('-'))) >= 3),
+            'Has he played for 3+ teams in his career?': int(len(set(row['TEAM_ABBREVIATION'].split('-'))) >= 3),
             'Has he played for 10+ seasons?': int(seasons_played >= 10),
             'Has he ever averaged 30+ PPG in a season?': int((totals_df['PTS']/totals_df['GP'] >= 30).sum() >= 1),
             'Has he ever averaged 15+ RPG in a season?': int((totals_df['REB']/totals_df['GP'] >= 15).sum() >= 1),
             'Has he ever averaged 10+ APG in a season?': int((totals_df['AST']/totals_df['GP'] >= 10).sum() >= 1),
             'Was he traded this season?': int(len(set(row['TEAM_ABBREVIATION'].split('-'))) > 1),
+            'Does he have a brother in the NBA?': int(row['PLAYER_NAME'] in NBA_BROTHERS or row['PLAYER_NAME'] in NBA_BROTHERS.values()),
+            
         })
     df = pd.DataFrame(rows)
     df.to_csv(CACHE_FILE, index=False)
