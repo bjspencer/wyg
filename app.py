@@ -16,7 +16,7 @@ def _send_no_verify(self, *args, **kwargs):
     return _original_send(self, *args, **kwargs)
 requests.Session.send = _send_no_verify
  
-from nba_api.stats.endpoints import leaguedashplayerstats, playerindex, playerawards
+from nba_api.stats.endpoints import leaguedashplayerstats, playerindex, playerawards, commonplayerinfo 
  
 CACHE_FILE = "nba_players_cache.csv"
 CACHE_MAX_DAYS = 7
@@ -79,6 +79,7 @@ AFRICA = {'Democratic Republic of the Congo', 'Nigeria', 'Cameroon', 'Senegal', 
           'Sudan', 'Somalia', 'Republic of the Congo', 'Angola', 'Ghana', 'Mali', 'Guinea',
           'Ivory Coast', 'Morocco', 'Central African Republic'}
 SOUTH_AMERICA = {'Brazil', 'Argentina', 'Venezuela', 'Colombia', 'Chile', 'Uruguay', 'Bolivia'}
+# Add last two teams after tomorrow's play-in games
 PLAYOFF_TEAMS = {'DET', 'BOS', 'NYK', 'CLE', 'TOR', 'ATL', 'PHI', 'OKC', 'SAS', 'DEN', 'LAL', 'HOU', 'MIN', 'POR'}
  
 IMPLICATIONS = {
@@ -174,6 +175,7 @@ def load_dataset():
         division = TEAM_DIVISION.get(team, '')
         pid = int(row['PLAYER_ID'])
         bio = bio_lookup.loc[pid] if pid in bio_lookup.index else {}
+        player_info = commonplayerinfo.CommonPlayerInfo(player_id=pid).get_data_frames()[0]
         def safe(key):
             v = bio.get(key, '') if isinstance(bio, dict) else (bio[key] if key in bio.index else '')
             return '' if pd.isna(v) else str(v).strip()
@@ -279,6 +281,9 @@ def load_dataset():
             'Has he played for 3+ teams?': int(len(set(row['TEAM_ABBREVIATION'].split('-'))) >= 3),
             'Has he played for 10+ seasons?': int(seasons_played >= 10),
             'Has he ever averaged 30+ PPG in a season?': int((totals_df['PTS']/totals_df['GP'] >= 30).sum() >= 1),
+            'Has he ever averaged 15+ RPG in a season?': int((totals_df['REB']/totals_df['GP'] >= 15).sum() >= 1),
+            'Has he ever averaged 10+ APG in a season?': int((totals_df['AST']/totals_df['GP'] >= 10).sum() >= 1),
+            
         })
     df = pd.DataFrame(rows)
     df.to_csv(CACHE_FILE, index=False)
@@ -403,6 +408,10 @@ def on_guess_answer(correct):
         s.phase = 'won'
         return
 
+    # Remove the wrong guess from the candidate pool so remaining count updates.
+    if 'current_guess' in s and s.current_guess is not None:
+        s.candidates = s.candidates[s.candidates['Player'] != s.current_guess]
+
     remaining_candidates = [p for p in s.candidates['Player'] if p != s.current_guess]
     if getattr(s, 'is_final_guess', False) or len(remaining_candidates) == 0:
         s.phase = 'lost'
@@ -415,7 +424,6 @@ st.set_page_config(page_title="Who You Got?", page_icon="🏀", layout="centered
 st.title("🏀 Who You Got?")
 st.subheader("An NBA player guessing game")
 st.caption("Think of an active NBA player and I will try to guess who it is!")
-st.markdown("**Deployed version: test-1**")
 st.markdown("""
 <style>
 .info-icon {
@@ -542,6 +550,7 @@ elif s.phase == 'won':
         with st.spinner("Loading photo..."):
             st.markdown(f'<div style="text-align: center;"><img src="https://cdn.nba.com/headshots/nba/latest/1040x760/{pid}.png" width="260" /></div>', unsafe_allow_html=True)
     st.success(f"🎉 I got it — **{s.current_guess}**!")
+    st.caption(f"I guessed your player in {s.question_count} questions.")
     st.balloons()
     if st.button("Play again", use_container_width=True):
         init_game(df, feature_columns)
