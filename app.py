@@ -495,7 +495,7 @@ s = st.session_state
  
 # Progress bar
 if s.phase in ('asking', 'guessing'):
-    display_count = min(s.question_count, 20)
+    display_count = min(s.question_count + 1, 20)
     st.progress(display_count / 20, text=f"Question {display_count} / 20")
  
 # Question history
