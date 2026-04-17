@@ -283,7 +283,7 @@ def load_dataset():
             'Has he ever averaged 30+ PPG in a season?': int((totals_df['PTS']/totals_df['GP'] >= 30).sum() >= 1),
             'Has he ever averaged 15+ RPG in a season?': int((totals_df['REB']/totals_df['GP'] >= 15).sum() >= 1),
             'Has he ever averaged 10+ APG in a season?': int((totals_df['AST']/totals_df['GP'] >= 10).sum() >= 1),
-            
+            'Was he traded this season?': int(len(set(row['TEAM_ABBREVIATION'].split('-'))) > 1),
         })
     df = pd.DataFrame(rows)
     df.to_csv(CACHE_FILE, index=False)
@@ -495,13 +495,6 @@ s = st.session_state
 if s.phase in ('asking', 'guessing'):
     display_count = min(s.question_count, 20)
     st.progress(display_count / 20, text=f"Question {display_count} / 20")
-    total = len(df)
-    current = len(s.candidates) if s.get('candidates') is not None else total
-    prev = s.get('prev_candidate_count', total)
-    delta = current - prev
-    col_m, col_b = st.columns([1, 2])
-    col_m.metric("🎯 Players remaining", current, delta=delta, delta_color="inverse")
-    col_b.progress(current / total, text=f"{current} of {total} players still possible")
  
 # Question history
 if s.get('history') or s.get('guessed'):
