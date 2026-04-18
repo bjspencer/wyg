@@ -6,59 +6,77 @@ Can be run standalone or via GitHub Actions.
 import os
 import sys
 import time
+import json
 import socket
 import requests
-import urllib3
 import pandas as pd
 from datetime import datetime
 from urllib3.util.retry import Retry
 from requests.adapters import HTTPAdapter
 
 # Set global socket timeout for all connections
-socket.setdefaulttimeout(120)
+socket.setdefaulttimeout(180)
 
 # Disable SSL warnings
+import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# Create a session with proper timeout and retry configuration
-def _create_session_with_timeouts():
+# Create a robust session for NBA API calls
+def _create_nba_session():
     session = requests.Session()
+    session.verify = False
     
-    # Configure retries with exponential backoff
+    # Configure retries
     retry_strategy = Retry(
-        total=5,
-        backoff_factor=2,
-        status_forcelist=[429, 500, 502, 503, 504, 408],  # Include 408 timeout
+        total=10,  # More retries for unreliable API
+        backoff_factor=1,  # 1, 2, 4, 8, 16, 32... seconds
+        status_forcelist=[429, 500, 502, 503, 504, 408],
         allowed_methods=["GET"],
         raise_on_status=False
     )
     
-    # Create adapter with retry strategy and timeout
-    adapter = HTTPAdapter(max_retries=retry_strategy)
-    
-    # Mount adapter for both http and https
+    adapter = HTTPAdapter(max_retries=retry_strategy, pool_connections=1, pool_maxsize=1)
     session.mount("http://", adapter)
     session.mount("https://", adapter)
     
     return session
 
-# Patch requests.Session to use our custom session's configuration
-# by intercepting request methods to set timeout
-_original_request = requests.Session.request
+_nba_session = _create_nba_session()
 
-def _patched_request(self, method, url, **kwargs):
-    # Ensure timeout is set
-    if 'timeout' not in kwargs:
-        kwargs['timeout'] = (10, 120)  # (connect timeout, read timeout)
-    return _original_request(self, method, url, **kwargs)
+# Direct NBA API calls without nba_api library overhead
+def fetch_league_dashboard(season="2025-26"):
+    """Fetch league dashboard player stats directly."""
+    url = "https://stats.nba.com/stats/leaguedashplayerstats"
+    params = {
+        "Season": season,
+        "SeasonType": "Regular Season",
+        "PerMode": "PerGame"
+    }
+    
+    resp = _nba_session.get(url, params=params, timeout=(30, 180))
+    resp.raise_for_status()
+    data = resp.json()
+    
+    headers = data['resultSets'][0]['headers']
+    rows = data['resultSets'][0]['rowSet']
+    
+    return pd.DataFrame(rows, columns=headers)
 
-requests.Session.request = _patched_request
-
-# Import nba_api after all patches are in place
-from nba_api.stats.endpoints import (
-    leaguedashplayerstats,
-    playerindex,
-)
+def fetch_player_index(season="2025-26"):
+    """Fetch player index directly."""
+    url = "https://stats.nba.com/stats/playerindex"
+    params = {"Season": season}
+    
+    resp = _nba_session.get(url, params=params, timeout=(30, 180))
+    resp.raise_for_status()
+    data = resp.json()
+    
+    headers = data['resultSets'][0]['headers']
+    rows = data['resultSets'][0]['rowSet']
+    
+    df = pd.DataFrame(rows, columns=headers)
+    df = df.rename(columns={'PERSON_ID': 'PLAYER_ID'})
+    return df
 
 CACHE_FILE = "nba_players_cache.csv"
 SEASON = "2025-26"
@@ -118,15 +136,11 @@ def fetch_with_retries(fetch_func, max_retries=5, initial_delay=3):
     for attempt in range(max_retries):
         try:
             return fetch_func()
-        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError, 
-                requests.exceptions.ReadTimeout,
-                urllib3.exceptions.ReadTimeoutError,
-                urllib3.exceptions.PoolError,
-                urllib3.exceptions.ConnectTimeoutError) as e:
+        except Exception as e:
             if attempt == max_retries - 1:
                 raise
             delay = initial_delay * (2 ** attempt)
-            print(f"  Request timed out (attempt {attempt + 1}/{max_retries}). Retrying in {delay}s...")
+            print(f"  Request failed (attempt {attempt + 1}/{max_retries}): {type(e).__name__}. Retrying in {delay}s...")
             time.sleep(delay)
 
 
@@ -144,17 +158,10 @@ def fetch_and_update_cache():
 
     try:
         print("Fetching league dash player stats...")
-        totals_df = fetch_with_retries(
-            lambda: leaguedashplayerstats.LeagueDashPlayerStats(
-                season=SEASON, season_type_all_star='Regular Season'
-            ).get_data_frames()[0]
-        )
+        totals_df = fetch_with_retries(lambda: fetch_league_dashboard(SEASON))
 
         print("Fetching player index...")
-        bio_df = fetch_with_retries(
-            lambda: playerindex.PlayerIndex(season=SEASON).get_data_frames()[0]
-        )
-        bio_df = bio_df.rename(columns={'PERSON_ID': 'PLAYER_ID'})
+        bio_df = fetch_with_retries(lambda: fetch_player_index(SEASON))
         bio_df['PLAYER_ID'] = bio_df['PLAYER_ID'].astype(int)
         bio_lookup = bio_df.set_index('PLAYER_ID')
 
