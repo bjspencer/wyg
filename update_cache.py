@@ -6,6 +6,7 @@ Can be run standalone or via GitHub Actions.
 import os
 import sys
 import time
+import socket
 import requests
 import urllib3
 import pandas as pd
@@ -13,39 +14,47 @@ from datetime import datetime
 from urllib3.util.retry import Retry
 from requests.adapters import HTTPAdapter
 
+# Set global socket timeout for all connections
+socket.setdefaulttimeout(120)
+
 # Disable SSL warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # Configure requests session with retries and longer timeout
-def _get_session_with_retries():
+def _create_session_with_retries(timeout=120):
     session = requests.Session()
     retry_strategy = Retry(
-        total=3,
-        backoff_factor=1,
+        total=5,
+        backoff_factor=2,
         status_forcelist=[429, 500, 502, 503, 504],
         allowed_methods=["GET"]
     )
     adapter = HTTPAdapter(max_retries=retry_strategy)
     session.mount("http://", adapter)
     session.mount("https://", adapter)
+    
+    # Disable SSL verification
+    session.verify = False
     return session
 
-# Patch requests to use our custom session
-_original_send = requests.Session.send
-
-def _send_no_verify(self, *args, **kwargs):
-    kwargs['verify'] = False
-    kwargs['timeout'] = kwargs.get('timeout', 60)  # Set longer timeout (default 60s)
-    return _original_send(self, *args, **kwargs)
-
-requests.Session.send = _send_no_verify
-
+# Import nba_api AFTER setting up patches
 from nba_api.stats.endpoints import (
     leaguedashplayerstats,
     playerindex,
     playerawards,
     commonplayerinfo,
 )
+from nba_api.library.http import NBAStatsHTTP
+
+# Patch the NBAStatsHTTP class to use our custom session
+_original_get_session = NBAStatsHTTP.get_session
+
+def _patched_get_session(self):
+    if not hasattr(self, '_custom_session'):
+        self._custom_session = _create_session_with_retries(timeout=120)
+    return self._custom_session
+
+NBAStatsHTTP.get_session = _patched_get_session
 
 CACHE_FILE = "nba_players_cache.csv"
 SEASON = "2025-26"
@@ -100,13 +109,16 @@ NBA_BROTHERS = {
 }
 
 
-def fetch_with_retries(fetch_func, max_retries=3, initial_delay=2):
+def fetch_with_retries(fetch_func, max_retries=5, initial_delay=3):
     """Retry a fetch operation with exponential backoff."""
     for attempt in range(max_retries):
         try:
             return fetch_func()
         except (requests.exceptions.Timeout, requests.exceptions.ConnectionError, 
-                urllib3.exceptions.ReadTimeoutError) as e:
+                requests.exceptions.ReadTimeout,
+                urllib3.exceptions.ReadTimeoutError,
+                urllib3.exceptions.PoolError,
+                urllib3.exceptions.ConnectTimeoutError) as e:
             if attempt == max_retries - 1:
                 raise
             delay = initial_delay * (2 ** attempt)
@@ -202,11 +214,12 @@ def fetch_and_update_cache():
                 )
                 descs = set(aw['DESCRIPTION'].tolist())
                 all_star_count = int((aw['DESCRIPTION'] == 'All-Star').sum())
-            except Exception:
+            except Exception as e:
                 descs = set()
                 all_star_count = 0
                 # Don't break on individual player award fetch - just skip
-                time.sleep(0.5)  # Small delay between retries to avoid hammering API
+                # print(f"  Warning: Could not fetch awards for player {pid}: {e}")
+                time.sleep(1)  # Delay after failed player award fetch
 
             has_ring = int('NBA Champion' in descs)
             has_allnba = int('All-NBA' in descs)
@@ -304,8 +317,8 @@ def fetch_and_update_cache():
                 'Does he have a brother in the NBA?': int(player_name in NBA_BROTHERS or player_name in NBA_BROTHERS.values()),
             })
             
-            # Small delay between players to avoid overwhelming the API
-            time.sleep(0.1)
+            # Delay between players to avoid overwhelming the API and reduce timeout risk
+            time.sleep(0.2)
 
         print(f"Creating DataFrame with {len(rows)} players...")
         df = pd.DataFrame(rows)
