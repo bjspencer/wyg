@@ -20,43 +20,49 @@ socket.setdefaulttimeout(120)
 # Disable SSL warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# Configure requests session with retries and longer timeout
-def _create_session_with_retries(timeout=120):
-    session = requests.Session()
-    retry_strategy = Retry(
-        total=5,
-        backoff_factor=2,
-        status_forcelist=[429, 500, 502, 503, 504],
-        allowed_methods=["GET"]
-    )
-    adapter = HTTPAdapter(max_retries=retry_strategy)
-    session.mount("http://", adapter)
-    session.mount("https://", adapter)
-    
-    # Disable SSL verification
-    session.verify = False
-    return session
+# Monkey-patch urllib3 to use longer timeouts by default
+import urllib3.util.connection
+_original_create_connection = urllib3.util.connection.create_connection
 
-# Create a global session with retries
-_global_session = _create_session_with_retries(timeout=120)
+def _patched_create_connection(address, timeout=120, source_address=None, socket_options=None):
+    """Patched create_connection with longer default timeout."""
+    if timeout is urllib3.util.connection.socket._GLOBAL_DEFAULT_TIMEOUT:
+        timeout = 120
+    return _original_create_connection(address, timeout=timeout, source_address=source_address, 
+                                      socket_options=socket_options)
 
-# Import nba_api after setting up session
+urllib3.util.connection.create_connection = _patched_create_connection
+
+# Also patch HTTPSConnectionPool to use longer read timeout
+from urllib3.connectionpool import HTTPSConnectionPool
+_original_init = HTTPSConnectionPool.__init__
+
+def _patched_https_init(self, *args, **kwargs):
+    if 'read_timeout' not in kwargs or kwargs['read_timeout'] is None:
+        kwargs['read_timeout'] = 120
+    if 'timeout' not in kwargs or kwargs['timeout'] is None:
+        kwargs['timeout'] = 120
+    return _original_init(self, *args, **kwargs)
+
+HTTPSConnectionPool.__init__ = _patched_https_init
+
+# Monkey patch Session.get to enforce timeout
+_original_session_get = requests.Session.get
+
+def _patched_session_get(self, url, **kwargs):
+    if 'timeout' not in kwargs:
+        kwargs['timeout'] = 120
+    return _original_session_get(self, url, **kwargs)
+
+requests.Session.get = _patched_session_get
+
+# Import nba_api after all patches are in place
 from nba_api.stats.endpoints import (
     leaguedashplayerstats,
     playerindex,
     playerawards,
     commonplayerinfo,
 )
-
-# Monkey patch requests to use our session with proper timeout
-_original_send = requests.Session.send
-
-def _send_with_timeout(self, *args, **kwargs):
-    kwargs['timeout'] = kwargs.get('timeout', 120)
-    kwargs['verify'] = False
-    return _original_send(self, *args, **kwargs)
-
-requests.Session.send = _send_with_timeout
 
 CACHE_FILE = "nba_players_cache.csv"
 SEASON = "2025-26"
