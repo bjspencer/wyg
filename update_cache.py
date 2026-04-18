@@ -20,41 +20,39 @@ socket.setdefaulttimeout(120)
 # Disable SSL warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# Monkey-patch urllib3 to use longer timeouts by default
-import urllib3.util.connection
-_original_create_connection = urllib3.util.connection.create_connection
+# Create a session with proper timeout and retry configuration
+def _create_session_with_timeouts():
+    session = requests.Session()
+    
+    # Configure retries with exponential backoff
+    retry_strategy = Retry(
+        total=5,
+        backoff_factor=2,
+        status_forcelist=[429, 500, 502, 503, 504, 408],  # Include 408 timeout
+        allowed_methods=["GET"],
+        raise_on_status=False
+    )
+    
+    # Create adapter with retry strategy and timeout
+    adapter = HTTPAdapter(max_retries=retry_strategy)
+    
+    # Mount adapter for both http and https
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    
+    return session
 
-def _patched_create_connection(address, timeout=120, source_address=None, socket_options=None):
-    """Patched create_connection with longer default timeout."""
-    if timeout is urllib3.util.connection.socket._GLOBAL_DEFAULT_TIMEOUT:
-        timeout = 120
-    return _original_create_connection(address, timeout=timeout, source_address=source_address, 
-                                      socket_options=socket_options)
+# Patch requests.Session to use our custom session's configuration
+# by intercepting request methods to set timeout
+_original_request = requests.Session.request
 
-urllib3.util.connection.create_connection = _patched_create_connection
-
-# Also patch HTTPSConnectionPool to use longer read timeout
-from urllib3.connectionpool import HTTPSConnectionPool
-_original_init = HTTPSConnectionPool.__init__
-
-def _patched_https_init(self, *args, **kwargs):
-    if 'read_timeout' not in kwargs or kwargs['read_timeout'] is None:
-        kwargs['read_timeout'] = 120
-    if 'timeout' not in kwargs or kwargs['timeout'] is None:
-        kwargs['timeout'] = 120
-    return _original_init(self, *args, **kwargs)
-
-HTTPSConnectionPool.__init__ = _patched_https_init
-
-# Monkey patch Session.get to enforce timeout
-_original_session_get = requests.Session.get
-
-def _patched_session_get(self, url, **kwargs):
+def _patched_request(self, method, url, **kwargs):
+    # Ensure timeout is set
     if 'timeout' not in kwargs:
-        kwargs['timeout'] = 120
-    return _original_session_get(self, url, **kwargs)
+        kwargs['timeout'] = (10, 120)  # (connect timeout, read timeout)
+    return _original_request(self, method, url, **kwargs)
 
-requests.Session.get = _patched_session_get
+requests.Session.request = _patched_request
 
 # Import nba_api after all patches are in place
 from nba_api.stats.endpoints import (
