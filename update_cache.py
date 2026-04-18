@@ -5,20 +5,38 @@ Can be run standalone or via GitHub Actions.
 """
 import os
 import sys
+import time
 import requests
 import urllib3
 import pandas as pd
 from datetime import datetime
+from urllib3.util.retry import Retry
+from requests.adapters import HTTPAdapter
 
 # Disable SSL warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-_original_send = requests.Session.send
 
+# Configure requests session with retries and longer timeout
+def _get_session_with_retries():
+    session = requests.Session()
+    retry_strategy = Retry(
+        total=3,
+        backoff_factor=1,
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=["GET"]
+    )
+    adapter = HTTPAdapter(max_retries=retry_strategy)
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    return session
+
+# Patch requests to use our custom session
+_original_send = requests.Session.send
 
 def _send_no_verify(self, *args, **kwargs):
     kwargs['verify'] = False
+    kwargs['timeout'] = kwargs.get('timeout', 60)  # Set longer timeout (default 60s)
     return _original_send(self, *args, **kwargs)
-
 
 requests.Session.send = _send_no_verify
 
@@ -82,18 +100,36 @@ NBA_BROTHERS = {
 }
 
 
+def fetch_with_retries(fetch_func, max_retries=3, initial_delay=2):
+    """Retry a fetch operation with exponential backoff."""
+    for attempt in range(max_retries):
+        try:
+            return fetch_func()
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError, 
+                urllib3.exceptions.ReadTimeoutError) as e:
+            if attempt == max_retries - 1:
+                raise
+            delay = initial_delay * (2 ** attempt)
+            print(f"  Request timed out (attempt {attempt + 1}/{max_retries}). Retrying in {delay}s...")
+            time.sleep(delay)
+
+
 def fetch_and_update_cache():
     """Fetch player data from NBA API and update the cache file."""
     print(f"[{datetime.now().isoformat()}] Starting cache update...")
 
     try:
         print("Fetching league dash player stats...")
-        totals_df = leaguedashplayerstats.LeagueDashPlayerStats(
-            season=SEASON, season_type_all_star='Regular Season'
-        ).get_data_frames()[0]
+        totals_df = fetch_with_retries(
+            lambda: leaguedashplayerstats.LeagueDashPlayerStats(
+                season=SEASON, season_type_all_star='Regular Season'
+            ).get_data_frames()[0]
+        )
 
         print("Fetching player index...")
-        bio_df = playerindex.PlayerIndex(season=SEASON).get_data_frames()[0]
+        bio_df = fetch_with_retries(
+            lambda: playerindex.PlayerIndex(season=SEASON).get_data_frames()[0]
+        )
         bio_df = bio_df.rename(columns={'PERSON_ID': 'PLAYER_ID'})
         bio_df['PLAYER_ID'] = bio_df['PLAYER_ID'].astype(int)
         bio_lookup = bio_df.set_index('PLAYER_ID')
@@ -161,12 +197,16 @@ def fetch_and_update_cache():
             seasons_played = max(0, 2026 - draft_year + 1) if draft_year > 0 else 0
 
             try:
-                aw = playerawards.PlayerAwards(player_id=pid).get_data_frames()[0]
+                aw = fetch_with_retries(
+                    lambda pid=pid: playerawards.PlayerAwards(player_id=pid).get_data_frames()[0]
+                )
                 descs = set(aw['DESCRIPTION'].tolist())
                 all_star_count = int((aw['DESCRIPTION'] == 'All-Star').sum())
             except Exception:
                 descs = set()
                 all_star_count = 0
+                # Don't break on individual player award fetch - just skip
+                time.sleep(0.5)  # Small delay between retries to avoid hammering API
 
             has_ring = int('NBA Champion' in descs)
             has_allnba = int('All-NBA' in descs)
@@ -263,6 +303,9 @@ def fetch_and_update_cache():
                 'Was he traded this season?': int(len(set(team.split('-'))) > 1) if '-' in team else 0,
                 'Does he have a brother in the NBA?': int(player_name in NBA_BROTHERS or player_name in NBA_BROTHERS.values()),
             })
+            
+            # Small delay between players to avoid overwhelming the API
+            time.sleep(0.1)
 
         print(f"Creating DataFrame with {len(rows)} players...")
         df = pd.DataFrame(rows)

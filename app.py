@@ -80,7 +80,7 @@ AFRICA = {'Democratic Republic of the Congo', 'Nigeria', 'Cameroon', 'Senegal', 
           'Ivory Coast', 'Morocco', 'Central African Republic'}
 SOUTH_AMERICA = {'Brazil', 'Argentina', 'Venezuela', 'Colombia', 'Chile', 'Uruguay', 'Bolivia'}
 # Add last two teams after tomorrow's play-in games
-PLAYOFF_TEAMS = {'DET', 'BOS', 'NYK', 'CLE', 'TOR', 'ATL', 'PHI', 'OKC', 'SAS', 'DEN', 'LAL', 'HOU', 'MIN', 'POR'}
+PLAYOFF_TEAMS = {'DET', 'BOS', 'NYK', 'CLE', 'TOR', 'ATL', 'PHI', 'ORL', 'OKC', 'SAS', 'DEN', 'LAL', 'HOU', 'MIN', 'POR', 'PHX'}
 
 NBA_BROTHERS = {
     'Lonzo Ball': 'LaMelo Ball',
