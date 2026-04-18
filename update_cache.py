@@ -131,8 +131,16 @@ def fetch_with_retries(fetch_func, max_retries=5, initial_delay=3):
 
 
 def fetch_and_update_cache():
-    """Fetch player data from NBA API and update the cache file."""
+    """Fetch player data from NBA API and update the cache file.
+    If update fails, silently continue with existing cache.
+    """
     print(f"[{datetime.now().isoformat()}] Starting cache update...")
+    
+    # Check if cache exists
+    if os.path.exists(CACHE_FILE):
+        cache_age_seconds = time.time() - os.path.getmtime(CACHE_FILE)
+        cache_age_days = cache_age_seconds / 86400
+        print(f"Existing cache is {cache_age_days:.1f} days old")
 
     try:
         print("Fetching league dash player stats...")
@@ -325,7 +333,14 @@ def fetch_and_update_cache():
         return True
 
     except Exception as e:
-        print(f"✗ Error updating cache: {e}", file=sys.stderr)
+        print(f"⚠ Error updating cache: {e}", file=sys.stderr)
+        # If we have an existing cache, that's good enough - don't fail the workflow
+        if os.path.exists(CACHE_FILE):
+            cache_age_days = (time.time() - os.path.getmtime(CACHE_FILE)) / 86400
+            print(f"⚠ Using existing cache file ({cache_age_days:.1f} days old)", file=sys.stderr)
+            return True
+        # Only fail if we have no cache at all
+        print(f"✗ No cache file available and update failed", file=sys.stderr)
         import traceback
         traceback.print_exc()
         return False
