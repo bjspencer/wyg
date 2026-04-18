@@ -37,24 +37,26 @@ def _create_session_with_retries(timeout=120):
     session.verify = False
     return session
 
-# Import nba_api AFTER setting up patches
+# Create a global session with retries
+_global_session = _create_session_with_retries(timeout=120)
+
+# Import nba_api after setting up session
 from nba_api.stats.endpoints import (
     leaguedashplayerstats,
     playerindex,
     playerawards,
     commonplayerinfo,
 )
-from nba_api.library.http import NBAStatsHTTP
 
-# Patch the NBAStatsHTTP class to use our custom session
-_original_get_session = NBAStatsHTTP.get_session
+# Monkey patch requests to use our session with proper timeout
+_original_send = requests.Session.send
 
-def _patched_get_session(self):
-    if not hasattr(self, '_custom_session'):
-        self._custom_session = _create_session_with_retries(timeout=120)
-    return self._custom_session
+def _send_with_timeout(self, *args, **kwargs):
+    kwargs['timeout'] = kwargs.get('timeout', 120)
+    kwargs['verify'] = False
+    return _original_send(self, *args, **kwargs)
 
-NBAStatsHTTP.get_session = _patched_get_session
+requests.Session.send = _send_with_timeout
 
 CACHE_FILE = "nba_players_cache.csv"
 SEASON = "2025-26"
