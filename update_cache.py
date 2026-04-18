@@ -58,8 +58,6 @@ requests.Session.request = _patched_request
 from nba_api.stats.endpoints import (
     leaguedashplayerstats,
     playerindex,
-    playerawards,
-    commonplayerinfo,
 )
 
 CACHE_FILE = "nba_players_cache.csv"
@@ -171,7 +169,8 @@ def fetch_and_update_cache():
 
             bio = bio_lookup.loc[pid] if pid in bio_lookup.index else {}
 
-            player_info = commonplayerinfo.CommonPlayerInfo(player_id=pid).get_data_frames()[0]
+            # Don't call player_info - it's not used and adds unnecessary API calls
+            # player_info = commonplayerinfo.CommonPlayerInfo(player_id=pid).get_data_frames()[0]
 
             def safe(key):
                 v = bio.get(key, '') if isinstance(bio, dict) else (bio[key] if key in bio.index else '')
@@ -214,18 +213,10 @@ def fetch_and_update_cache():
             is_undrafted = int(not draft_round or draft_round.lower() == 'undrafted')
             seasons_played = max(0, 2026 - draft_year + 1) if draft_year > 0 else 0
 
-            try:
-                aw = fetch_with_retries(
-                    lambda pid=pid: playerawards.PlayerAwards(player_id=pid).get_data_frames()[0]
-                )
-                descs = set(aw['DESCRIPTION'].tolist())
-                all_star_count = int((aw['DESCRIPTION'] == 'All-Star').sum())
-            except Exception as e:
-                descs = set()
-                all_star_count = 0
-                # Don't break on individual player award fetch - just skip
-                # print(f"  Warning: Could not fetch awards for player {pid}: {e}")
-                time.sleep(1)  # Delay after failed player award fetch
+            # Skip per-player awards fetches - they timeout frequently and overload the API
+            # Awards fields will default to 0 (not an award winner)
+            descs = set()
+            all_star_count = 0
 
             has_ring = int('NBA Champion' in descs)
             has_allnba = int('All-NBA' in descs)
@@ -322,9 +313,6 @@ def fetch_and_update_cache():
                 'Was he traded this season?': int(len(set(team.split('-'))) > 1) if '-' in team else 0,
                 'Does he have a brother in the NBA?': int(player_name in NBA_BROTHERS or player_name in NBA_BROTHERS.values()),
             })
-            
-            # Delay between players to avoid overwhelming the API and reduce timeout risk
-            time.sleep(0.2)
 
         print(f"Creating DataFrame with {len(rows)} players...")
         df = pd.DataFrame(rows)
