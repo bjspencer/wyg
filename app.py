@@ -18,9 +18,10 @@ requests.Session.send = _send_no_verify
  
 from nba_api.stats.endpoints import leaguedashplayerstats, playerindex, playerawards, commonplayerinfo, leaguegamefinder 
  
-CACHE_FILE = "nba_players_cache_2026_playoffs_final.csv"
+CACHE_FILE = "nba_players_cache_2026_playoffs_final_v2.csv"
 CACHE_MAX_DAYS = 7
 SEASON = "2025-26"
+CHAMPION_TEAM_2026 = "NYK"
  
 TEAM_CONFERENCE = {
     'ATL': 'East', 'BOS': 'East', 'BKN': 'East', 'CHA': 'East', 'CHI': 'East',
@@ -206,6 +207,7 @@ def load_dataset():
         gp = row['GP'] if row['GP'] > 0 else 1
         ppg, rpg, apg = row['PTS']/gp, row['REB']/gp, row['AST']/gp
         team = row.get('TEAM_ABBREVIATION', '')
+        season_teams = set(str(team).split('-')) if team else set()
         conference = TEAM_CONFERENCE.get(team, '')
         division = TEAM_DIVISION.get(team, '')
         pid = int(row['PLAYER_ID'])
@@ -249,7 +251,7 @@ def load_dataset():
             all_star_count = int((aw['DESCRIPTION'] == 'All-Star').sum())
         except Exception:
             descs, all_star_count = set(), 0
-        has_ring    = int('NBA Champion' in descs)
+        has_ring    = int('NBA Champion' in descs or CHAMPION_TEAM_2026 in season_teams)
         has_allnba  = int('All-NBA' in descs)
         has_all_defense = int('All-Defensive Team' in descs)
         is_mvp      = int('Most Valuable Player' in descs)
