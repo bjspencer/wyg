@@ -16,11 +16,12 @@ def _send_no_verify(self, *args, **kwargs):
     return _original_send(self, *args, **kwargs)
 requests.Session.send = _send_no_verify
  
-from nba_api.stats.endpoints import leaguedashplayerstats, playerindex, playerawards, commonplayerinfo 
+from nba_api.stats.endpoints import leaguedashplayerstats, playerindex, playerawards, commonplayerinfo, leaguegamefinder 
  
-CACHE_FILE = "nba_players_cache.csv"
+CACHE_FILE = "nba_players_cache_2026_playoffs_final_v2.csv"
 CACHE_MAX_DAYS = 7
 SEASON = "2025-26"
+CHAMPION_TEAM_2026 = "NYK"
  
 TEAM_CONFERENCE = {
     'ATL': 'East', 'BOS': 'East', 'BKN': 'East', 'CHA': 'East', 'CHI': 'East',
@@ -79,8 +80,19 @@ AFRICA = {'Democratic Republic of the Congo', 'Nigeria', 'Cameroon', 'Senegal', 
           'Sudan', 'Somalia', 'Republic of the Congo', 'Angola', 'Ghana', 'Mali', 'Guinea',
           'Ivory Coast', 'Morocco', 'Central African Republic'}
 SOUTH_AMERICA = {'Brazil', 'Argentina', 'Venezuela', 'Colombia', 'Chile', 'Uruguay', 'Bolivia'}
-# Add last two teams after tomorrow's play-in games
-PLAYOFF_TEAMS = {'DET', 'BOS', 'NYK', 'CLE', 'TOR', 'ATL', 'PHI', 'ORL', 'OKC', 'SAS', 'DEN', 'LAL', 'HOU', 'MIN', 'POR', 'PHX'}
+DEFAULT_PLAYOFF_TEAMS = {'DET', 'BOS', 'NYK', 'CLE', 'TOR', 'ATL', 'PHI', 'ORL', 'OKC', 'SAS', 'DEN', 'LAL', 'HOU', 'MIN', 'POR', 'PHX'}
+
+@st.cache_data(ttl=86400)
+def get_playoff_teams(season):
+    try:
+        playoff_games = leaguegamefinder.LeagueGameFinder(
+            season_nullable=season,
+            season_type_nullable='Playoffs'
+        ).get_data_frames()[0]
+        teams = set(playoff_games.get('TEAM_ABBREVIATION', pd.Series(dtype=str)).dropna().tolist())
+        return teams if teams else DEFAULT_PLAYOFF_TEAMS
+    except Exception:
+        return DEFAULT_PLAYOFF_TEAMS
 
 NBA_BROTHERS = {
     'Lonzo Ball': 'LaMelo Ball',
@@ -189,11 +201,13 @@ def load_dataset():
     bio_df = bio_df.rename(columns={'PERSON_ID': 'PLAYER_ID'})
     bio_df['PLAYER_ID'] = bio_df['PLAYER_ID'].astype(int)
     bio_lookup = bio_df.set_index('PLAYER_ID')
+    playoff_teams = get_playoff_teams(SEASON)
     rows = []
     for _, row in totals_df.iterrows():
         gp = row['GP'] if row['GP'] > 0 else 1
         ppg, rpg, apg = row['PTS']/gp, row['REB']/gp, row['AST']/gp
         team = row.get('TEAM_ABBREVIATION', '')
+        season_teams = set(str(team).split('-')) if team else set()
         conference = TEAM_CONFERENCE.get(team, '')
         division = TEAM_DIVISION.get(team, '')
         pid = int(row['PLAYER_ID'])
@@ -237,7 +251,7 @@ def load_dataset():
             all_star_count = int((aw['DESCRIPTION'] == 'All-Star').sum())
         except Exception:
             descs, all_star_count = set(), 0
-        has_ring    = int('NBA Champion' in descs)
+        has_ring    = int('NBA Champion' in descs or CHAMPION_TEAM_2026 in season_teams)
         has_allnba  = int('All-NBA' in descs)
         has_all_defense = int('All-Defensive Team' in descs)
         is_mvp      = int('Most Valuable Player' in descs)
@@ -297,7 +311,7 @@ def load_dataset():
             'Has he won the MVP award?': is_mvp,
             'Has he won Defensive Player of the Year?': is_dpoy,
             'Has he made an All-Defensive Team?': has_all_defense,
-            'Does he play for a 2026 playoff team?': int(team in PLAYOFF_TEAMS),
+            'Does he play for a 2026 playoff team?': int(team in playoff_teams),
             'Has he scored 10,000+ career points?': int(row['PTS'] >= 10000),
             'Has he grabbed 5,000+ career rebounds?': int(row['REB'] >= 5000),
             'Has he dished 5,000+ career assists?': int(row['AST'] >= 5000),
